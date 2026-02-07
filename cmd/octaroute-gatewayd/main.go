@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -24,6 +25,10 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	if !cfg.Server.BindTailscale {
+		log.Fatal("server.bindTailscale must be true to bind tailscale0")
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -39,7 +44,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	ln, err := netutil.ListenWithOptionalDevice(ctx, "tcp", cfg.Server.Address, bindDevice(cfg.Server.BindTailscale))
+	ln, err := netutil.ListenWithOptionalDevice(ctx, "tcp", cfg.Server.Address, "tailscale0")
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
@@ -52,16 +57,9 @@ func main() {
 	}()
 
 	log.Printf("gatewayd listening on %s", cfg.Server.Address)
-	if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+	if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}
-}
-
-func bindDevice(bindTailscale bool) string {
-	if bindTailscale {
-		return "tailscale0"
-	}
-	return ""
 }
 
 func logRequests(next http.Handler) http.Handler {
