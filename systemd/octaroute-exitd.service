@@ -1,0 +1,11 @@
+[Unit]
+Description=OctaRoute Exit Node Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/octaroute-exitd --config /etc/octaroute/exitd.json
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

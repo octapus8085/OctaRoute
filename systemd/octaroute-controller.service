@@ -1,0 +1,11 @@
+[Unit]
+Description=OctaRoute Controller
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/octaroute-controller --config /etc/octaroute/controller.json
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

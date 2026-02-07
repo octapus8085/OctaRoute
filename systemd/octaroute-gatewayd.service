@@ -1,0 +1,11 @@
+[Unit]
+Description=OctaRoute Gateway Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/octaroute-gatewayd --config /etc/octaroute/gatewayd.json
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

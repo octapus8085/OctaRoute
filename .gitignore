@@ -1,0 +1,9 @@
+# Node
+web/node_modules/
+web/dist/
+
+# Go
+*.db
+
+# OS
+.DS_Store
