@@ -10,6 +10,12 @@ import (
 type ServerConfig struct {
 	Address       string `json:"address"`
 	BindTailscale bool   `json:"bindTailscale"`
+	APIKey        string `json:"apiKey"`
+}
+
+type DNSConfig struct {
+	ListenAddress string `json:"listenAddress"`
+	Upstream      string `json:"upstream"`
 }
 
 // AuthConfig defines the API key header used by control endpoints.
