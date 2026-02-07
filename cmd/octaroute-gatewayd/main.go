@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"octaroute/internal/config"
 	"octaroute/internal/netutil"
+	"octaroute/internal/routing"
 )
 
 func main() {
@@ -24,11 +26,64 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	stateStore, err := routing.OpenStateStore(cfg.Database)
+	if err != nil {
+		log.Fatalf("open routing state: %v", err)
+	}
+	defer func() {
+		_ = stateStore.Close()
+	}()
+
+	manager := &routing.Manager{
+		DNS: &routing.DNSProxy{
+			ListenAddr: cfg.DNS.ListenAddress,
+			Upstream:   cfg.DNS.Upstream,
+		},
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("/status", requireAPIKey(cfg, func(w http.ResponseWriter, r *http.Request) {
+		state, ok, err := stateStore.Load(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"applied": false,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"applied": true,
+			"state":   state,
+		})
+	}))
+	mux.HandleFunc("/apply", requireAPIKey(cfg, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var req routing.ApplyRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		state, err := manager.Apply(r.Context(), req)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := stateStore.Save(r.Context(), state); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	}))
 
 	server := &http.Server{
 		Addr:              cfg.Server.Address,
@@ -69,6 +124,26 @@ func logRequests(next http.Handler) http.Handler {
 		log.Printf("%s %s", r.Method, r.URL.Path)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requireAPIKey(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Server.APIKey == "" {
+			next(w, r)
+			return
+		}
+		if r.Header.Get("X-API-Key") != cfg.Server.APIKey {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		next(w, r)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func init() {
