@@ -30,9 +30,25 @@ Create a JSON config file for each service:
 {
   "server": {
     "address": ":8080",
-    "bindTailscale": false
+    "bindTailscale": true
   },
-  "database": "octaroute.db"
+  "database": "octaroute.db",
+  "auth": {
+    "apiKey": "replace-me",
+    "header": "X-API-Key"
+  },
+  "wireguard": {
+    "enabled": true,
+    "interface": "wg0",
+    "listenPort": 51820,
+    "privateKeyPath": "/etc/octaroute/wg.key",
+    "address": "10.42.0.1/24"
+  },
+  "nat": {
+    "enable": true,
+    "externalInterface": "eth0",
+    "internalInterface": "wg0"
+  }
 }
 ```
 
