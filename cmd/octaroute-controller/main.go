@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"octaroute/internal/auth"
 	"octaroute/internal/config"
 	"octaroute/internal/controllerdb"
 	"octaroute/internal/netutil"
@@ -30,6 +32,13 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	if !cfg.Server.BindTailscale {
+		log.Fatal("server.bindTailscale must be true to bind tailscale0")
+	}
+	if cfg.Auth.APIKey == "" {
+		log.Fatal("auth.apiKey must be set")
+	}
+
 	store, err := controllerdb.Open(cfg.Database)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
@@ -42,9 +51,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/api/nodes", api.handleNodes)
-	mux.HandleFunc("/api/policies", api.handlePolicies)
-	mux.HandleFunc("/api/routes", api.handleRoutes)
+	mux.Handle("/api/nodes", auth.RequireAPIKey(http.HandlerFunc(api.handleNodes), cfg.Auth.APIKey, cfg.Auth.Header))
+	mux.Handle("/api/policies", auth.RequireAPIKey(http.HandlerFunc(api.handlePolicies), cfg.Auth.APIKey, cfg.Auth.Header))
+	mux.Handle("/api/routes", auth.RequireAPIKey(http.HandlerFunc(api.handleRoutes), cfg.Auth.APIKey, cfg.Auth.Header))
 
 	server := &http.Server{
 		Addr:              cfg.Server.Address,
@@ -55,7 +64,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	ln, err := netutil.ListenWithOptionalDevice(ctx, "tcp", cfg.Server.Address, bindDevice(cfg.Server.BindTailscale))
+	ln, err := netutil.ListenWithOptionalDevice(ctx, "tcp", cfg.Server.Address, "tailscale0")
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
@@ -68,16 +77,9 @@ func main() {
 	}()
 
 	log.Printf("controller listening on %s", cfg.Server.Address)
-	if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+	if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}
-}
-
-func bindDevice(bindTailscale bool) string {
-	if bindTailscale {
-		return "tailscale0"
-	}
-	return ""
 }
 
 func logRequests(next http.Handler) http.Handler {
